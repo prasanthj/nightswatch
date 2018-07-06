@@ -68,6 +68,16 @@ public class ProfileServlet extends HttpServlet {
     if (req.getParameter("event") != null) {
       eventType = ProfileStatus.EventType.fromEventName(req.getParameter("event"));
     }
+
+    int duration = DEFAULT_DURATION_SECONDS;
+    if (req.getParameter("duration") != null) {
+      try {
+        duration = Integer.parseInt(req.getParameter("duration"));
+      } catch (NumberFormatException e) {
+        // ignore and use default
+      }
+    }
+
     profilerLock.lock();
     try {
 
@@ -76,7 +86,8 @@ public class ProfileServlet extends HttpServlet {
         populateSupportedEvents(profileStatus);
         String outputFile = profileStatus.getOutputFile();
         if (outputFile != null) {
-          explicitlyStarted = req.getParameter("start") != null;
+          // if start and duration are specified, duration takes precedence
+          explicitlyStarted = req.getParameter("start") != null && req.getParameter("duration") == null;
           LOG.info("Starting async-profiler.. explicitStart: {}", explicitlyStarted);
           List<String> cmd = new ArrayList<>();
           cmd.add(asyncProfilerHome + "/profiler.sh");
@@ -85,9 +96,8 @@ public class ProfileServlet extends HttpServlet {
             cmd.add("-f");
           } else {
             cmd.add("-d");
-            final int profilingDurationSeconds = DEFAULT_DURATION_SECONDS;
-            cmd.add("" + profilingDurationSeconds);
-            profileStatus.setDurationSeconds(profilingDurationSeconds);
+            cmd.add("" + duration);
+            profileStatus.setDurationSeconds(duration);
           }
           if (eventType != null) {
             cmd.add("-e");
