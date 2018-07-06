@@ -1,15 +1,20 @@
 package com.github.prasanthj.nightswatch;
 
-import java.io.ByteArrayOutputStream;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Created by prasanthj on 7/5/18.
  */
 public class ProcessUtils {
+  private static Logger LOG = LoggerFactory.getLogger(ProcessUtils.class);
   public static long getPid() {
     String name = ManagementFactory.getRuntimeMXBean().getName();
 
@@ -28,27 +33,33 @@ public class ProcessUtils {
     throw new IllegalStateException("Unsupported PID format: " + name);
   }
 
-  public static Process runCmdAsync(String... cmd) {
+  public static Process runCmdAsync(List<String> cmd) {
     try {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Running command async: " + cmd);
+      }
       return new ProcessBuilder(cmd).start();
     } catch (IOException ex) {
       throw new IllegalStateException(ex);
     }
   }
 
-  public static List<String> stopCmd(Process process) {
+  public static List<String> runCmd(List<String> cmd) {
     List<String> messages = new ArrayList<>();
     try {
-      ByteArrayOutputStream baos = new ByteArrayOutputStream();
-      process.destroy();
-      int exitCode = process.waitFor();
-      if (exitCode != 0) {
-        messages.add(baos.toString());
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Running command: " + cmd);
       }
-
-      return messages;
-    } catch (InterruptedException e) {
-      throw new IllegalStateException(e);
+      Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+      BufferedReader in = new BufferedReader(new InputStreamReader(p.getInputStream()));
+      String line;
+      while ((line = in.readLine()) != null) {
+        messages.add(line);
+      }
+      p.waitFor();
+    } catch (InterruptedException | IOException e) {
+      messages.add(e.getMessage());
     }
+    return messages;
   }
 }

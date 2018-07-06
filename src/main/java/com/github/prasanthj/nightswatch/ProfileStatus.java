@@ -51,13 +51,13 @@ public class ProfileStatus {
   private String outputFile;
   private long startTimestamp;
   private int durationSeconds;
-
-  // TODO: fill this
+  private EventType eventType;
   private List<EventType> supportedEvents;
 
-  public ProfileStatus(final String outputDir) {
+  public ProfileStatus(final String outputDir, final EventType eventType) {
     this.startTimestamp = System.currentTimeMillis();
     this.profileId = UUID.randomUUID().toString();
+    this.eventType = eventType == null ? EventType.CPU : eventType;
     File outFile = new File(outputDir, profileId);
     if (outFile.mkdirs()) {
       this.outputFile = outFile.getAbsolutePath() + "/profile.svg";
@@ -108,10 +108,22 @@ public class ProfileStatus {
     this.supportedEvents = supportedEvents;
   }
 
+  public void setStartTimestamp(final long startTimestamp) {
+    this.startTimestamp = startTimestamp;
+  }
+
+  public EventType getEventType() {
+    return eventType;
+  }
+
+  public void setEventType(final EventType eventType) {
+    this.eventType = eventType;
+  }
+
   @Override
   public String toString() {
-    return "profileId: " + profileId + ", status: " + status + " outputFile: " + outputFile +
-      " startTimestamp: " + new Timestamp(startTimestamp) + " durationSeconds: " + durationSeconds +
-      " supportedEvents: " + supportedEvents;
+    return "eventType: " + eventType + ", profileId: " + profileId + ", status: " + status +
+      " outputFile: " + outputFile + " startTimestamp: " + new Timestamp(startTimestamp) +
+      " durationSeconds: " + durationSeconds + " supportedEvents: " + supportedEvents;
   }
 }

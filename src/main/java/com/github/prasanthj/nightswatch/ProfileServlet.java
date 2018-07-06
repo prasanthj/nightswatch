@@ -2,6 +2,8 @@ package com.github.prasanthj.nightswatch;
 
 import java.io.IOException;
 import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -17,28 +19,27 @@ import org.slf4j.LoggerFactory;
  */
 public class ProfileServlet extends HttpServlet {
   private static Logger LOG = LoggerFactory.getLogger(ProfileServlet.class);
-  public static final String ASYNC_PROFILER_HOME_ENV = "ASYNC_PROFILER_HOME";
-  public static final int DEFAULT_DURATION_SECONDS = 30;
+  private static final String ASYNC_PROFILER_HOME_ENV = "ASYNC_PROFILER_HOME";
+  private static final String DEFAULT_OUTPUT_DIR = "/tmp";
+  private static final int DEFAULT_DURATION_SECONDS = 30;
 
   private Lock profilerLock = new ReentrantLock();
-  private long pid;
-  private String profilesOutputPath;
+  private String pid;
+  private String profilesOutputPath = DEFAULT_OUTPUT_DIR;
   private String asyncProfilerHome;
   private Process profProcess;
   private boolean profilerRunning;
   private boolean explicitlyStarted;
-  private int profilingDurationSeconds;
   private ProfileStatus profileStatus;
+  private List<ProfileStatus.EventType> supportedEvents;
 
   public ProfileServlet() {
     this.asyncProfilerHome = System.getenv(ASYNC_PROFILER_HOME_ENV);
-    this.profilesOutputPath = System.getProperty("java.io.tmpdir");
     try {
-      this.pid = ProcessUtils.getPid();
+      this.pid = "" + ProcessUtils.getPid();
     } catch (IllegalStateException e) {
-      this.pid = -1;
+      this.pid = null;
     }
-    this.profilingDurationSeconds = DEFAULT_DURATION_SECONDS;
     LOG.info("Servlet process PID: {} asyncProfilerHome: {} outputDir: {}", pid, asyncProfilerHome, profilesOutputPath);
   }
 
@@ -58,43 +59,62 @@ public class ProfileServlet extends HttpServlet {
       return;
     }
 
-    if (pid == -1) {
+    if (pid == null) {
       resp.getWriter().write("Unable to determine PID of current process.");
       return;
     }
 
+    ProfileStatus.EventType eventType = null;
+    if (req.getParameter("event") != null) {
+      eventType = ProfileStatus.EventType.fromEventName(req.getParameter("event"));
+    }
     profilerLock.lock();
     try {
+
       if (!profilerRunning) {
-        // TODO: fill supported events once
-        profileStatus = new ProfileStatus(profilesOutputPath);
+        profileStatus = new ProfileStatus(profilesOutputPath, eventType);
+        populateSupportedEvents(profileStatus);
         String outputFile = profileStatus.getOutputFile();
         if (outputFile != null) {
           explicitlyStarted = req.getParameter("start") != null;
           LOG.info("Starting async-profiler.. explicitStart: {}", explicitlyStarted);
+          List<String> cmd = new ArrayList<>();
+          cmd.add(asyncProfilerHome + "/profiler.sh");
           if (explicitlyStarted) {
-            profProcess = ProcessUtils.runCmdAsync(asyncProfilerHome + "/profiler.sh",
-              "start",
-              "-f", outputFile,
-              "" + pid);
+            cmd.add("start");
+            cmd.add("-f");
           } else {
-            profProcess = ProcessUtils.runCmdAsync(asyncProfilerHome + "/profiler.sh",
-              "-d", "" + profilingDurationSeconds,
-              "-f", outputFile,
-              "" + pid);
+            cmd.add("-d");
+            final int profilingDurationSeconds = DEFAULT_DURATION_SECONDS;
+            cmd.add("" + profilingDurationSeconds);
             profileStatus.setDurationSeconds(profilingDurationSeconds);
           }
+          if (eventType != null) {
+            cmd.add("-e");
+            cmd.add(eventType.getEventName());
+          }
+          cmd.add("-f");
+          cmd.add(outputFile);
+          cmd.add(pid);
+          profProcess = ProcessUtils.runCmdAsync(cmd);
           profileStatus.setStatus(ProfileStatus.Status.RUNNING);
           profilerRunning = true;
         }
       } else {
         if (explicitlyStarted) {
+          List<String> cmd = new ArrayList<>();
+          cmd.add(asyncProfilerHome + "/profiler.sh");
           if (req.getParameter("stop") != null) {
             LOG.info("Profiler stop requested..");
-            profProcess = ProcessUtils.runCmdAsync(asyncProfilerHome + "/profiler.sh",
-              "stop",
-              "-f", profileStatus.getOutputFile(),
-              "" + pid);
+            cmd.add("stop");
+            if (eventType != null) {
+              cmd.add("-e");
+              cmd.add(eventType.getEventName());
+            }
+            cmd.add("-f");
+            cmd.add(profileStatus.getOutputFile());
+            cmd.add(pid);
+            profProcess = ProcessUtils.runCmdAsync(cmd);
             profileStatus.setStatus(ProfileStatus.Status.STOPPED);
             profileStatus.setDurationSeconds(
               (int) ((System.currentTimeMillis() - profileStatus.getStartTimestamp()) / 1000));
@@ -120,5 +140,28 @@ public class ProfileServlet extends HttpServlet {
     } finally {
       profilerLock.unlock();
     }
+  }
+
+  private void populateSupportedEvents(final ProfileStatus profileStatus) {
+    // get the list of supported events once
+    if (supportedEvents == null) {
+      supportedEvents = new ArrayList<>();
+      List<String> cmd = new ArrayList<>();
+      cmd.add(asyncProfilerHome + "/profiler.sh");
+      cmd.add("list");
+      cmd.add(pid);
+      List<String> outLines = ProcessUtils.runCmd(cmd);
+      for (String out : outLines) {
+        ProfileStatus.EventType et = ProfileStatus.EventType.fromEventName(out.trim());
+        if (et != null) {
+          supportedEvents.add(et);
+        }
+      }
+      // if event types cannot be determined, add the minimum support CPU profiling
+      if (supportedEvents.isEmpty()) {
+        supportedEvents.add(ProfileStatus.EventType.CPU);
+      }
+    }
+    profileStatus.setSupportedEvents(supportedEvents);
   }
 }
