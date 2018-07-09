@@ -14,6 +14,8 @@ import javax.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 /**
  * Created by prasanthj on 7/5/18.
  */
@@ -22,6 +24,7 @@ public class ProfileServlet extends HttpServlet {
   private static final String ASYNC_PROFILER_HOME_ENV = "ASYNC_PROFILER_HOME";
   private static final String DEFAULT_OUTPUT_DIR = "/tmp";
   private static final int DEFAULT_DURATION_SECONDS = 30;
+  private static final String PROFILER_SCRIPT = "/profiler.sh";
 
   private Lock profilerLock = new ReentrantLock();
   private String pid;
@@ -90,7 +93,7 @@ public class ProfileServlet extends HttpServlet {
           explicitlyStarted = req.getParameter("start") != null && req.getParameter("duration") == null;
           LOG.info("Starting async-profiler.. explicitStart: {}", explicitlyStarted);
           List<String> cmd = new ArrayList<>();
-          cmd.add(asyncProfilerHome + "/profiler.sh");
+          cmd.add(asyncProfilerHome + PROFILER_SCRIPT);
           if (explicitlyStarted) {
             cmd.add("start");
             cmd.add("-f");
@@ -113,7 +116,7 @@ public class ProfileServlet extends HttpServlet {
       } else {
         if (explicitlyStarted) {
           List<String> cmd = new ArrayList<>();
-          cmd.add(asyncProfilerHome + "/profiler.sh");
+          cmd.add(asyncProfilerHome + PROFILER_SCRIPT);
           if (req.getParameter("stop") != null) {
             LOG.info("Profiler stop requested..");
             cmd.add("stop");
@@ -145,7 +148,11 @@ public class ProfileServlet extends HttpServlet {
         }
       }
 
-      LOG.info(profileStatus.toString());
+      if (LOG.isDebugEnabled()) {
+        LOG.debug(profileStatus.toString());
+      }
+      ObjectMapper objectMapper = new ObjectMapper();
+      objectMapper.writeValue(resp.getWriter(), profileStatus);
       resp.getWriter().write(profileStatus.toString());
     } finally {
       profilerLock.unlock();
@@ -157,7 +164,7 @@ public class ProfileServlet extends HttpServlet {
     if (supportedEvents == null) {
       supportedEvents = new ArrayList<>();
       List<String> cmd = new ArrayList<>();
-      cmd.add(asyncProfilerHome + "/profiler.sh");
+      cmd.add(asyncProfilerHome + PROFILER_SCRIPT);
       cmd.add("list");
       cmd.add(pid);
       List<String> outLines = ProcessUtils.runCmd(cmd);
