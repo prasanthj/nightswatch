@@ -25,6 +25,10 @@ public class ProfileServlet extends HttpServlet {
   private static final String DEFAULT_OUTPUT_DIR = "/tmp";
   private static final int DEFAULT_DURATION_SECONDS = 30;
   private static final String PROFILER_SCRIPT = "/profiler.sh";
+  private static final String ACCESS_CONTROL_ALLOW_METHODS = "Access-Control-Allow-Methods";
+  private static final String ALLOWED_METHODS = "POST, GET";
+  private static final String ACCESS_CONTROL_ALLOW_ORIGIN = "Access-Control-Allow-Origin";
+  private static final String CONTENT_TYPE_JSON_UTF8 = "application/json; charset=utf8";
 
   private Lock profilerLock = new ReentrantLock();
   private String pid;
@@ -151,6 +155,7 @@ public class ProfileServlet extends HttpServlet {
       if (LOG.isDebugEnabled()) {
         LOG.debug(profileStatus.toString());
       }
+      setResponseHeader(resp);
       ObjectMapper objectMapper = new ObjectMapper();
       objectMapper.writeValue(resp.getWriter(), profileStatus);
       resp.getWriter().write(profileStatus.toString());
@@ -181,4 +186,11 @@ public class ProfileServlet extends HttpServlet {
     }
     profileStatus.setSupportedEvents(supportedEvents);
   }
+
+  private void setResponseHeader(final HttpServletResponse response) {
+    response.setContentType(CONTENT_TYPE_JSON_UTF8);
+    response.setHeader(ACCESS_CONTROL_ALLOW_METHODS, ALLOWED_METHODS);
+    response.setHeader(ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+  }
+
 }
