@@ -1,7 +1,24 @@
+/*
+ * Copyright 2018 Prasanth Jayachandran
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.github.prasanthj.nightswatch;
 
+import java.io.File;
 import java.io.IOException;
-import java.sql.Timestamp;
+import java.io.OutputStream;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.Lock;
@@ -14,31 +31,59 @@ import javax.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 /**
- * Created by prasanthj on 7/5/18.
+ * Servlet that runs async-profiler as web-endpoint.
  */
 public class ProfileServlet extends HttpServlet {
   private static Logger LOG = LoggerFactory.getLogger(ProfileServlet.class);
   private static final String ASYNC_PROFILER_HOME_ENV = "ASYNC_PROFILER_HOME";
-  private static final String DEFAULT_OUTPUT_DIR = "/tmp";
-  private static final int DEFAULT_DURATION_SECONDS = 30;
   private static final String PROFILER_SCRIPT = "/profiler.sh";
+
+  private static final int DEFAULT_DURATION_SECONDS = 30;
+  private static final String DEFAULT_OUTPUT_TYPE = "svg";
   private static final String ACCESS_CONTROL_ALLOW_METHODS = "Access-Control-Allow-Methods";
-  private static final String ALLOWED_METHODS = "POST, GET";
+  private static final String ALLOWED_METHODS = "GET";
   private static final String ACCESS_CONTROL_ALLOW_ORIGIN = "Access-Control-Allow-Origin";
-  private static final String CONTENT_TYPE_JSON_UTF8 = "application/json; charset=utf8";
+  private static final String CONTENT_TYPE_SVG = "image/svg+xml; charset=utf-8";
+  private static final String CONTENT_TYPE_HTML = "text/html; charset=utf-8";
+  private static final String CONTENT_TYPE_TEXT = "text/plain; charset=utf-8";
+  private static final String CONTENT_TYPE_BINARY = "application/octet-stream";
 
   private Lock profilerLock = new ReentrantLock();
   private String pid;
-  private String profilesOutputPath = DEFAULT_OUTPUT_DIR;
   private String asyncProfilerHome;
-  private Process profProcess;
-  private boolean profilerRunning;
-  private boolean explicitlyStarted;
-  private ProfileStatus profileStatus;
-  private List<ProfileStatus.EventType> supportedEvents;
+  private List<EventType> supportedEvents;
+
+  public enum EventType {
+    CPU("cpu"),
+    ALLOC("alloc"),
+    LOCK("lock"),
+    CACHE_MISSES("cache-misses");
+
+    private String eventName;
+    EventType(final String eventName) {
+      this.eventName = eventName;
+    }
+
+    public String getEventName() {
+      return eventName;
+    }
+
+    public static EventType fromEventName(String eventName) {
+      for (EventType eventType : values()) {
+        if (eventType.getEventName().equalsIgnoreCase(eventName)) {
+          return eventType;
+        }
+      }
+
+      return null;
+    }
+
+    @Override
+    public String toString() {
+      return getEventName();
+    }
+  }
 
   public ProfileServlet() {
     this.asyncProfilerHome = System.getenv(ASYNC_PROFILER_HOME_ENV);
@@ -47,33 +92,43 @@ public class ProfileServlet extends HttpServlet {
     } catch (IllegalStateException e) {
       this.pid = null;
     }
-    LOG.info("Servlet process PID: {} asyncProfilerHome: {} outputDir: {}", pid, asyncProfilerHome, profilesOutputPath);
+    LOG.info("Servlet process PID: {} asyncProfilerHome: {}", pid, asyncProfilerHome);
   }
 
   @Override
   protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
-    if (profilerRunning) {
-      resp.getWriter().write("Profiler is running already..");
-    } else {
-      resp.getWriter().write("Profiler is not running.");
-    }
-  }
-
-  @Override
-  protected void doPost(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
     if (asyncProfilerHome == null || asyncProfilerHome.trim().isEmpty()) {
+      setResponseHeader(resp, "text");
+      resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
       resp.getWriter().write("ASYNC_PROFILER_HOME env is not set.");
       return;
     }
 
     if (pid == null) {
+      setResponseHeader(resp, "text");
+      resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
       resp.getWriter().write("Unable to determine PID of current process.");
       return;
     }
 
-    ProfileStatus.EventType eventType = null;
+    // Options from async-profiler ./profiler.sh
+    //  -e event          profiling event: cpu|alloc|lock|cache-misses etc.
+    //  -d duration       run profiling for <duration> seconds
+    //  -i interval       sampling interval in nanoseconds
+    //  -j jstackdepth    maximum Java stack depth
+    //  -b bufsize        frame buffer size
+    //  -t                profile different threads separately
+    //  -s                simple class names instead of FQN
+    //  -o fmt[,fmt...]   output format: summary|traces|flat|collapsed|svg|tree|jfr
+    //  --title string    SVG title
+    //  --width px        SVG width
+    //  --height px       SVG frame height
+    //  --minwidth px     skip frames smaller than px
+    //  --reverse         generate stack-reversed FlameGraph / Call tree
+    EventType eventType = EventType.CPU;
     if (req.getParameter("event") != null) {
-      eventType = ProfileStatus.EventType.fromEventName(req.getParameter("event"));
+      eventType = EventType.fromEventName(req.getParameter("event").trim().toLowerCase());
+      eventType = eventType == null ? EventType.CPU : eventType;
     }
 
     int duration = DEFAULT_DURATION_SECONDS;
@@ -85,86 +140,92 @@ public class ProfileServlet extends HttpServlet {
       }
     }
 
+    String output = DEFAULT_OUTPUT_TYPE;
+    if (req.getParameter("output") != null) {
+      output = req.getParameter("output").trim().toLowerCase();
+    }
+
+    String interval = req.getParameter("interval");
+    String jstackDepth = req.getParameter("jstackdepth");
+    String bufsize = req.getParameter("bufsize");
+    String thread = req.getParameter("thread");
+    String simple = req.getParameter("simple");
+    String title = req.getParameter("title");
+    String width = req.getParameter("width");
+    String height = req.getParameter("height");
+    String minwidth = req.getParameter("minwidth");
+    String reverse = req.getParameter("reverse");
     profilerLock.lock();
     try {
-
-      if (!profilerRunning) {
-        profileStatus = new ProfileStatus(profilesOutputPath, eventType);
-        populateSupportedEvents(profileStatus);
-        String outputFile = profileStatus.getOutputFile();
-        if (outputFile != null) {
-          // if start and duration are specified, duration takes precedence
-          explicitlyStarted = req.getParameter("start") != null && req.getParameter("duration") == null;
-          LOG.info("Starting async-profiler.. explicitStart: {}", explicitlyStarted);
-          List<String> cmd = new ArrayList<>();
-          cmd.add(asyncProfilerHome + PROFILER_SCRIPT);
-          if (explicitlyStarted) {
-            cmd.add("start");
-            cmd.add("-f");
-          } else {
-            cmd.add("-d");
-            cmd.add("" + duration);
-            profileStatus.setDurationSeconds(duration);
-          }
-          if (eventType != null) {
-            cmd.add("-e");
-            cmd.add(eventType.getEventName());
-          }
-          cmd.add("-f");
-          cmd.add(outputFile);
-          cmd.add(pid);
-          profProcess = ProcessUtils.runCmdAsync(cmd);
-          profileStatus.setStatus(ProfileStatus.Status.RUNNING);
-          profilerRunning = true;
-        }
+      populateSupportedEvents();
+      File outputFile = File.createTempFile("async-prof-pid-" + pid, "." + output);
+      outputFile.deleteOnExit();
+      List<String> cmd = new ArrayList<>();
+      cmd.add(asyncProfilerHome + PROFILER_SCRIPT);
+      cmd.add("-e");
+      cmd.add(eventType.getEventName());
+      cmd.add("-d");
+      cmd.add("" + duration);
+      cmd.add("-o");
+      cmd.add(output);
+      cmd.add("-f");
+      cmd.add(outputFile.getAbsolutePath());
+      if (interval != null) {
+        cmd.add("-i");
+        cmd.add(interval);
+      }
+      if (jstackDepth != null) {
+        cmd.add("-j");
+        cmd.add(jstackDepth);
+      }
+      if (bufsize != null) {
+        cmd.add("-b");
+        cmd.add(bufsize);
+      }
+      if (thread != null) {
+        cmd.add("-t");
+      }
+      if (simple != null) {
+        cmd.add("-s");
+      }
+      if (title != null) {
+        cmd.add("--title");
+        cmd.add(title);
+      }
+      if (width != null) {
+        cmd.add("--width");
+        cmd.add(width);
+      }
+      if (height != null) {
+        cmd.add("--height");
+        cmd.add(height);
+      }
+      if (minwidth != null) {
+        cmd.add("--minwidth");
+        cmd.add(minwidth);
+      }
+      if (reverse != null) {
+        cmd.add("--reverse");
+      }
+      cmd.add(pid);
+      int ret = ProcessUtils.runCmdSync(cmd);
+      if (ret == 0) {
+        setResponseHeader(resp, output);
+        byte[] b = Files.readAllBytes(outputFile.toPath());
+        OutputStream os = resp.getOutputStream();
+        os.write(b);
+        os.flush();
       } else {
-        if (explicitlyStarted) {
-          List<String> cmd = new ArrayList<>();
-          cmd.add(asyncProfilerHome + PROFILER_SCRIPT);
-          if (req.getParameter("stop") != null) {
-            LOG.info("Profiler stop requested..");
-            cmd.add("stop");
-            if (eventType != null) {
-              cmd.add("-e");
-              cmd.add(eventType.getEventName());
-            }
-            cmd.add("-f");
-            cmd.add(profileStatus.getOutputFile());
-            cmd.add(pid);
-            profProcess = ProcessUtils.runCmdAsync(cmd);
-            profileStatus.setStatus(ProfileStatus.Status.STOPPED);
-            profileStatus.setDurationSeconds(
-              (int) ((System.currentTimeMillis() - profileStatus.getStartTimestamp()) / 1000));
-            profilerRunning = false;
-          } else {
-            LOG.info("Profiler started explicitly.. waiting for explicit stop..");
-          }
-        } else {
-          if (profProcess != null && !profProcess.isAlive()) {
-            profileStatus.setStatus(ProfileStatus.Status.STOPPED);
-            profilerRunning = false;
-            LOG.info("Last profiler run started at {} and stopped after {} seconds..",
-              new Timestamp(profileStatus.getStartTimestamp()), profileStatus.getDurationSeconds());
-          } else {
-            LOG.info("Profiler started at {}.. wait until {} seconds for it to stop automatically..",
-              new Timestamp(profileStatus.getStartTimestamp()), profileStatus.getDurationSeconds());
-          }
-        }
+        setResponseHeader(resp, "text");
+        resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+        resp.getWriter().write("Error executing async-profiler");
       }
-
-      if (LOG.isDebugEnabled()) {
-        LOG.debug(profileStatus.toString());
-      }
-      setResponseHeader(resp);
-      ObjectMapper objectMapper = new ObjectMapper();
-      objectMapper.writeValue(resp.getWriter(), profileStatus);
-      resp.getWriter().write(profileStatus.toString());
     } finally {
       profilerLock.unlock();
     }
   }
 
-  private void populateSupportedEvents(final ProfileStatus profileStatus) {
+  private void populateSupportedEvents() {
     // get the list of supported events once
     if (supportedEvents == null) {
       supportedEvents = new ArrayList<>();
@@ -174,23 +235,29 @@ public class ProfileServlet extends HttpServlet {
       cmd.add(pid);
       List<String> outLines = ProcessUtils.runCmd(cmd);
       for (String out : outLines) {
-        ProfileStatus.EventType et = ProfileStatus.EventType.fromEventName(out.trim());
+        EventType et = EventType.fromEventName(out.trim());
         if (et != null) {
           supportedEvents.add(et);
         }
       }
       // if event types cannot be determined, add the minimum support CPU profiling
       if (supportedEvents.isEmpty()) {
-        supportedEvents.add(ProfileStatus.EventType.CPU);
+        supportedEvents.add(EventType.CPU);
       }
     }
-    profileStatus.setSupportedEvents(supportedEvents);
   }
 
-  private void setResponseHeader(final HttpServletResponse response) {
-    response.setContentType(CONTENT_TYPE_JSON_UTF8);
+  private void setResponseHeader(final HttpServletResponse response, final String output) {
     response.setHeader(ACCESS_CONTROL_ALLOW_METHODS, ALLOWED_METHODS);
     response.setHeader(ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+    if (output.equalsIgnoreCase("svg")) {
+      response.setContentType(CONTENT_TYPE_SVG);
+    } else if (output.equalsIgnoreCase("tree")) {
+      response.setContentType(CONTENT_TYPE_HTML);
+    } else if (output.equalsIgnoreCase("jfr")) {
+      response.setContentType(CONTENT_TYPE_BINARY);
+    } else {
+      response.setContentType(CONTENT_TYPE_TEXT);
+    }
   }
-
 }
