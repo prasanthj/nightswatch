@@ -18,11 +18,18 @@ package com.github.prasanthj.nightswatch;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class NightsWatch {
+  private static Logger LOG = LoggerFactory.getLogger(NightsWatch.class);
 
   public static void main(String[] args) {
-    Server server = new Server(9898);
+    int port = 9898;
+    if (args.length == 1) {
+      port = Integer.parseInt(args[0]);
+    }
+    Server server = new Server(port);
     ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
     context.setContextPath("/");
     server.setHandler(context);
@@ -30,7 +37,7 @@ public class NightsWatch {
     try {
       server.start();
     } catch (Exception e) {
-      e.printStackTrace();
+      LOG.error("Unable to start jetty server", e);
     }
   }
 }

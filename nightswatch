@@ -1,0 +1,6 @@
+#!/bin/bash -e
+
+NIGHTSWATCH_HOME="$PWD"
+NIGHTSWATCH_CLASSPATH="$HLL_HOME/target/*:$NIGHTSWATCH_HOME/target/lib/*:$NIGHTSWATCH_HOME/target/classes"
+
+java -cp $NIGHTSWATCH_CLASSPATH com.github.prasanthj.nightswatch.NightsWatch "$@"

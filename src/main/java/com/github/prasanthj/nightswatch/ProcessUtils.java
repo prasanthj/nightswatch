@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
 
 public class ProcessUtils {
   private static Logger LOG = LoggerFactory.getLogger(ProcessUtils.class);
+
   static long getPid() {
     String name = ManagementFactory.getRuntimeMXBean().getName();
 
