@@ -61,6 +61,7 @@ public class ProfileServlet extends HttpServlet {
     CACHE_MISSES("cache-misses");
 
     private String eventName;
+
     EventType(final String eventName) {
       this.eventName = eventName;
     }
@@ -111,6 +112,34 @@ public class ProfileServlet extends HttpServlet {
       return;
     }
 
+    // if pid is explicitly specified, use it else default to current process
+    if (req.getParameter("pid") != null) {
+      pid = req.getParameter("pid");
+    }
+
+    // default is CPU profile
+    EventType eventType = EventType.CPU;
+    if (req.getParameter("event") != null) {
+      eventType = EventType.fromEventName(req.getParameter("event").trim().toLowerCase());
+      eventType = eventType == null ? EventType.CPU : eventType;
+    }
+
+    // 30s default duration
+    int duration = DEFAULT_DURATION_SECONDS;
+    if (req.getParameter("duration") != null) {
+      try {
+        duration = Integer.parseInt(req.getParameter("duration"));
+      } catch (NumberFormatException e) {
+        // ignore and use default
+      }
+    }
+
+    // default to svg flamegraph
+    String output = DEFAULT_OUTPUT_TYPE;
+    if (req.getParameter("output") != null) {
+      output = req.getParameter("output").trim().toLowerCase();
+    }
+
     // Options from async-profiler ./profiler.sh
     //  -e event          profiling event: cpu|alloc|lock|cache-misses etc.
     //  -d duration       run profiling for <duration> seconds
@@ -125,26 +154,6 @@ public class ProfileServlet extends HttpServlet {
     //  --height px       SVG frame height
     //  --minwidth px     skip frames smaller than px
     //  --reverse         generate stack-reversed FlameGraph / Call tree
-    EventType eventType = EventType.CPU;
-    if (req.getParameter("event") != null) {
-      eventType = EventType.fromEventName(req.getParameter("event").trim().toLowerCase());
-      eventType = eventType == null ? EventType.CPU : eventType;
-    }
-
-    int duration = DEFAULT_DURATION_SECONDS;
-    if (req.getParameter("duration") != null) {
-      try {
-        duration = Integer.parseInt(req.getParameter("duration"));
-      } catch (NumberFormatException e) {
-        // ignore and use default
-      }
-    }
-
-    String output = DEFAULT_OUTPUT_TYPE;
-    if (req.getParameter("output") != null) {
-      output = req.getParameter("output").trim().toLowerCase();
-    }
-
     String interval = req.getParameter("interval");
     String jstackDepth = req.getParameter("jstackdepth");
     String bufsize = req.getParameter("bufsize");
