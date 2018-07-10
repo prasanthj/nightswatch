@@ -1,5 +1,7 @@
 #!/bin/bash -e
 
+ASYNC_PROFILER_HOME=${ASYNC_PROFILER_HOME:?"ASYNC_PROFILER_HOME environment has to be set and should point to async-profiler"}
+
 NIGHTSWATCH_HOME="$PWD"
 NIGHTSWATCH_CLASSPATH="$HLL_HOME/target/*:$NIGHTSWATCH_HOME/target/lib/*:$NIGHTSWATCH_HOME/target/classes"
 
