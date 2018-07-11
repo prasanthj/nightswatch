@@ -52,39 +52,6 @@ public class ProfileServlet extends HttpServlet {
   private Lock profilerLock = new ReentrantLock();
   private String pid;
   private String asyncProfilerHome;
-  private List<EventType> supportedEvents;
-
-  public enum EventType {
-    CPU("cpu"),
-    ALLOC("alloc"),
-    LOCK("lock"),
-    CACHE_MISSES("cache-misses");
-
-    private String eventName;
-
-    EventType(final String eventName) {
-      this.eventName = eventName;
-    }
-
-    public String getEventName() {
-      return eventName;
-    }
-
-    public static EventType fromEventName(String eventName) {
-      for (EventType eventType : values()) {
-        if (eventType.getEventName().equalsIgnoreCase(eventName)) {
-          return eventType;
-        }
-      }
-
-      return null;
-    }
-
-    @Override
-    public String toString() {
-      return getEventName();
-    }
-  }
 
   public ProfileServlet() {
     this.asyncProfilerHome = System.getenv(ASYNC_PROFILER_HOME_ENV);
@@ -117,13 +84,6 @@ public class ProfileServlet extends HttpServlet {
       pid = req.getParameter("pid");
     }
 
-    // default is CPU profile
-    EventType eventType = EventType.CPU;
-    if (req.getParameter("event") != null) {
-      eventType = EventType.fromEventName(req.getParameter("event").trim().toLowerCase());
-      eventType = eventType == null ? EventType.CPU : eventType;
-    }
-
     // 30s default duration
     int duration = DEFAULT_DURATION_SECONDS;
     if (req.getParameter("duration") != null) {
@@ -154,6 +114,29 @@ public class ProfileServlet extends HttpServlet {
     //  --height px       SVG frame height
     //  --minwidth px     skip frames smaller than px
     //  --reverse         generate stack-reversed FlameGraph / Call tree
+
+
+    // following events are supported (default is 'cpu')
+    // Perf events:
+    //    cpu
+    //    page-faults
+    //    context-switches
+    //    cycles
+    //    instructions
+    //    cache-references
+    //    cache-misses
+    //    branches
+    //    branch-misses
+    //    bus-cycles
+    //    L1-dcache-load-misses
+    //    LLC-load-misses
+    //    dTLB-load-misses
+    //    mem:breakpoint
+    //    trace:tracepoint
+    // Java events:
+    //    alloc
+    //    lock
+    String event = req.getParameter("event");
     String interval = req.getParameter("interval");
     String jstackDepth = req.getParameter("jstackdepth");
     String bufsize = req.getParameter("bufsize");
@@ -166,13 +149,14 @@ public class ProfileServlet extends HttpServlet {
     String reverse = req.getParameter("reverse");
     profilerLock.lock();
     try {
-      populateSupportedEvents();
       File outputFile = File.createTempFile("async-prof-pid-" + pid, "." + output);
       outputFile.deleteOnExit();
       List<String> cmd = new ArrayList<>();
       cmd.add(asyncProfilerHome + PROFILER_SCRIPT);
-      cmd.add("-e");
-      cmd.add(eventType.getEventName());
+      if (event != null) {
+        cmd.add("-e");
+        cmd.add(event);
+      }
       cmd.add("-d");
       cmd.add("" + duration);
       cmd.add("-o");
@@ -231,28 +215,6 @@ public class ProfileServlet extends HttpServlet {
       }
     } finally {
       profilerLock.unlock();
-    }
-  }
-
-  private void populateSupportedEvents() {
-    // get the list of supported events once
-    if (supportedEvents == null) {
-      supportedEvents = new ArrayList<>();
-      List<String> cmd = new ArrayList<>();
-      cmd.add(asyncProfilerHome + PROFILER_SCRIPT);
-      cmd.add("list");
-      cmd.add(pid);
-      List<String> outLines = ProcessUtils.runCmd(cmd);
-      for (String out : outLines) {
-        EventType et = EventType.fromEventName(out.trim());
-        if (et != null) {
-          supportedEvents.add(et);
-        }
-      }
-      // if event types cannot be determined, add the minimum support CPU profiling
-      if (supportedEvents.isEmpty()) {
-        supportedEvents.add(EventType.CPU);
-      }
     }
   }
 
