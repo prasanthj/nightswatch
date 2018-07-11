@@ -17,7 +17,7 @@ To start the server (default port is 9898), run nightswatch script
 
 ```curl "http://localhost:9898/prof?pid=12920"```
 
-![CPU FlameGraph](https://raw.githubusercontent.com/prasanthj/nightswatch/master/img/cpu-flamegraph.svg)
+![CPU FlameGraph](https://github.com/prasanthj/nightswatch/blob/master/img/cpu-flamegraph.svg)
 
 
 - To collect CPU profile for a specific PID and output in tree format (html)
@@ -31,14 +31,14 @@ To start the server (default port is 9898), run nightswatch script
 
 ```curl "http://localhost:9898/prof?event=alloc&pid=12920"```
 
-![Heap Allocation FlameGraph](https://raw.githubusercontent.com/prasanthj/nightswatch/master/img/alloc-flamegraph.svg)
+![Heap Allocation FlameGraph](https://github.com/prasanthj/nightswatch/blob/master/img/alloc-flamegraph.svg)
 
 
 - To collect lock contention profile for a specific PID (replace the PID below with appropriate process) for 10s
 
 ```curl "http://localhost:9898/prof?event=lock&pid=12920&duration=10"```
 
-![Lock Contention FlameGraph](https://raw.githubusercontent.com/prasanthj/nightswatch/master/img/lock-flamegraph.svg)
+![Lock Contention FlameGraph](https://github.com/prasanthj/nightswatch/blob/master/img/lock-flamegraph.svg)
 
 
 [async-profiler]:https://github.com/jvm-profiling-tools/async-profiler
