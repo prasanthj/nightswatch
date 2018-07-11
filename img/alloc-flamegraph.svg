@@ -1,0 +1,1103 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="630" onload="init(evt)" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:black; }
+	.func_g:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	var details, searchbtn, matchedtxt, svg;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+	}
+
+	// mouse-over for info
+	function s(node) {		// show
+		info = g_to_text(node);
+		details.nodeValue = "Function: " + info;
+	}
+	function c() {			// clear
+		details.nodeValue = ' ';
+	}
+
+	// ctrl-F for search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+	})
+
+	// functions
+	function find_child(parent, name, attr) {
+		var children = parent.childNodes;
+		for (var i=0; i<children.length;i++) {
+			if (children[i].tagName == name)
+				return (attr != undefined) ? children[i].attributes[attr].value : children[i];
+		}
+		return;
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_"+attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_"+attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_"+attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes["width"].value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes["x"].value = parseFloat(r.attributes["x"].value) +3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2*12*0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		// Fit in full text width
+		if (/^ *$/.test(txt) || t.getSubStringLength(0, txt.length) < w)
+			return;
+
+		for (var x=txt.length-2; x>0; x--) {
+			if (t.getSubStringLength(0, x+2) <= w) {
+				t.textContent = txt.substring(0,x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes["x"] != undefined) {
+				orig_save(e, "x");
+				e.attributes["x"].value = (parseFloat(e.attributes["x"].value) - x - 10) * ratio + 10;
+				if(e.tagName == "text") e.attributes["x"].value = find_child(e.parentNode, "rect", "x") + 3;
+			}
+			if (e.attributes["width"] != undefined) {
+				orig_save(e, "width");
+				e.attributes["width"].value = parseFloat(e.attributes["width"].value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_child(c[i], x-10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes["x"] != undefined) {
+				orig_save(e, "x");
+				e.attributes["x"].value = 10;
+			}
+			if (e.attributes["width"] != undefined) {
+				orig_save(e, "width");
+				e.attributes["width"].value = parseInt(svg.width.baseVal.value) - (10*2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr["width"].value);
+		var xmin = parseFloat(attr["x"].value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr["y"].value);
+		var ratio = (svg.width.baseVal.value - 2*10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		var unzoombtn = document.getElementById("unzoom");
+		unzoombtn.style["opacity"] = "1.0";
+
+		var el = document.getElementsByTagName("g");
+		for(var i=0;i<el.length;i++){
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a["x"].value);
+			var ew = parseFloat(a["width"].value);
+			// Is it an ancestor
+			if (0 == 0) {
+				var upstack = parseFloat(a["y"].value) > ymin;
+			} else {
+				var upstack = parseFloat(a["y"].value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.style["opacity"] = "0.5";
+					zoom_parent(e);
+					e.onclick = function(e){unzoom(); zoom(this);};
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.style["display"] = "none";
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.style["display"] = "none";
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					e.onclick = function(e){zoom(this);};
+					update_text(e);
+				}
+			}
+		}
+	}
+	function unzoom() {
+		var unzoombtn = document.getElementById("unzoom");
+		unzoombtn.style["opacity"] = "0.0";
+
+		var el = document.getElementsByTagName("g");
+		for(i=0;i<el.length;i++) {
+			el[i].style["display"] = "block";
+			el[i].style["opacity"] = "1";
+			zoom_reset(el[i]);
+			update_text(el[i]);
+		}
+	}
+
+	// search
+	function reset_search() {
+		var el = document.getElementsByTagName("rect");
+		for (var i=0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)", "");
+			if (term != null) {
+				search(term)
+			}
+		} else {
+			reset_search();
+			searching = 0;
+			searchbtn.style["opacity"] = "0.1";
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.style["opacity"] = "0.0";
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		var re = new RegExp(term);
+		var el = document.getElementsByTagName("g");
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			if (e.attributes["class"].value != "func_g")
+				continue;
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (rect == null) {
+				// the rect might be wrapped in an anchor
+				// if nameattr href is being used
+				if (rect = find_child(e, "a")) {
+				    rect = find_child(r, "rect");
+				}
+			}
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes["width"].value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes["x"].value);
+				orig_save(rect, "fill");
+				rect.attributes["fill"].value =
+				    "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+
+		searchbtn.style["opacity"] = "1.0";
+		searchbtn.firstChild.nodeValue = "Reset Search"
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.style["opacity"] = "1.0";
+		pct = 100 * count / maxwidth;
+		if (pct == 100)
+			pct = "100"
+		else
+			pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+	function searchover(e) {
+		searchbtn.style["opacity"] = "1.0";
+	}
+	function searchout(e) {
+		if (searching) {
+			searchbtn.style["opacity"] = "1.0";
+		} else {
+			searchbtn.style["opacity"] = "0.1";
+		}
+	}
+]]>
+</script>
+<rect x="0" y="0" width="100%" height="100%" fill="rgb(240,240,220)"/>
+<text x="600" y="24" text-anchor="middle" style="font-size:17px">Flame Graph</text>
+<text x="10" y="613" id="details"> </text>
+<text x="10" y="24" id="unzoom" onclick="unzoom()" style="opacity:0.0;cursor:pointer">Reset Zoom</text>
+<text x="1090" y="24" id="search" onmouseover="searchover()" onmouseout="searchout()" onclick="search_prompt()" style="opacity:0.1;cursor:pointer">Search</text>
+<text x="1090" y="613" id="matched"> </text>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>all (26,748 samples, 100.00%)</title><rect x="10.0" y="579.0" width="1180.0" height="15" fill="#f67575" rx="2" ry="2"/>
+<text x="13.0" y="590.0">all</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.lang.String (23 samples, 0.09%)</title><rect x="10.0" y="563.0" width="1.1" height="15" fill="#49baba" rx="2" ry="2"/>
+<text x="13.0" y="574.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/Thread.run (25,962 samples, 97.06%)</title><rect x="11.1" y="563.0" width="1145.3" height="15" fill="#60f360" rx="2" ry="2"/>
+<text x="14.1" y="574.0">java/lang/Thread.run</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/concurrent/ThreadPoolExecutor$Worker.run (25,942 samples, 96.99%)</title><rect x="11.1" y="547.0" width="1144.4" height="15" fill="#61f361" rx="2" ry="2"/>
+<text x="14.1" y="558.0">java/util/concurrent/ThreadPoolExecutor$Worker.run</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/concurrent/ThreadPoolExecutor.runWorker (25,942 samples, 96.99%)</title><rect x="11.1" y="531.0" width="1144.4" height="15" fill="#68fa68" rx="2" ry="2"/>
+<text x="14.1" y="542.0">java/util/concurrent/ThreadPoolExecutor.runWorker</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/concurrent/FutureTask.run (25,764 samples, 96.32%)</title><rect x="11.1" y="515.0" width="1136.5" height="15" fill="#3dd23d" rx="2" ry="2"/>
+<text x="14.1" y="526.0">java/util/concurrent/FutureTask.run</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/concurrent/Executors$RunnableAdapter.call (25,764 samples, 96.32%)</title><rect x="11.1" y="499.0" width="1136.5" height="15" fill="#46da46" rx="2" ry="2"/>
+<text x="14.1" y="510.0">java/util/concurrent/Executors$RunnableAdapter.call</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>com/github/prasanthj/culvert/core/Stream.run (25,764 samples, 96.32%)</title><rect x="11.1" y="483.0" width="1136.5" height="15" fill="#60f260" rx="2" ry="2"/>
+<text x="14.1" y="494.0">com/github/prasanthj/culvert/core/Stream.run</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.util.StringJoiner (197 samples, 0.74%)</title><rect x="11.1" y="467.0" width="8.6" height="15" fill="#42b4b4" rx="2" ry="2"/>
+<text x="14.1" y="478.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/String.getBytes (3,662 samples, 13.69%)</title><rect x="19.7" y="467.0" width="161.6" height="15" fill="#53e653" rx="2" ry="2"/>
+<text x="22.7" y="478.0">java/lang/String.getB..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringCoding.encode (3,662 samples, 13.69%)</title><rect x="19.7" y="451.0" width="161.6" height="15" fill="#4ee24e" rx="2" ry="2"/>
+<text x="22.7" y="462.0">java/lang/StringCodin..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringCoding$StringEncoder.encode (3,662 samples, 13.69%)</title><rect x="19.7" y="435.0" width="161.6" height="15" fill="#57ea57" rx="2" ry="2"/>
+<text x="22.7" y="446.0">java/lang/StringCodin..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>byte[] (2,580 samples, 9.65%)</title><rect x="19.7" y="419.0" width="113.9" height="15" fill="#47b9b9" rx="2" ry="2"/>
+<text x="22.7" y="430.0">byte[]</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringCoding.access$300 (1,074 samples, 4.02%)</title><rect x="133.9" y="419.0" width="47.4" height="15" fill="#50e450" rx="2" ry="2"/>
+<text x="136.9" y="430.0">java..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringCoding.safeTrim (1,074 samples, 4.02%)</title><rect x="133.9" y="403.0" width="47.4" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="136.9" y="414.0">java..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/Arrays.copyOf (1,074 samples, 4.02%)</title><rect x="133.9" y="387.0" width="47.4" height="15" fill="#68fa68" rx="2" ry="2"/>
+<text x="136.9" y="398.0">java..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>byte[] (1,072 samples, 4.01%)</title><rect x="133.9" y="371.0" width="47.3" height="15" fill="#58c7c7" rx="2" ry="2"/>
+<text x="136.9" y="382.0">byte[]</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringBuilder.&lt;init&gt; (296 samples, 1.11%)</title><rect x="181.3" y="467.0" width="13.1" height="15" fill="#5def5d" rx="2" ry="2"/>
+<text x="184.3" y="478.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/AbstractStringBuilder.&lt;init&gt; (296 samples, 1.11%)</title><rect x="181.3" y="451.0" width="13.1" height="15" fill="#3acf3a" rx="2" ry="2"/>
+<text x="184.3" y="462.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>char[] (296 samples, 1.11%)</title><rect x="181.3" y="435.0" width="13.1" height="15" fill="#56c6c6" rx="2" ry="2"/>
+<text x="184.3" y="446.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringBuilder.append (5,269 samples, 19.70%)</title><rect x="194.4" y="467.0" width="232.4" height="15" fill="#32c832" rx="2" ry="2"/>
+<text x="197.4" y="478.0">java/lang/StringBuilder.append</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/AbstractStringBuilder.append (5,269 samples, 19.70%)</title><rect x="194.4" y="451.0" width="232.4" height="15" fill="#40d540" rx="2" ry="2"/>
+<text x="197.4" y="462.0">java/lang/AbstractStringBuilder..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/AbstractStringBuilder.ensureCapacityInternal (5,269 samples, 19.70%)</title><rect x="194.4" y="435.0" width="232.4" height="15" fill="#3acf3a" rx="2" ry="2"/>
+<text x="197.4" y="446.0">java/lang/AbstractStringBuilder..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/Arrays.copyOf (5,269 samples, 19.70%)</title><rect x="194.4" y="419.0" width="232.4" height="15" fill="#62f462" rx="2" ry="2"/>
+<text x="197.4" y="430.0">java/util/Arrays.copyOf</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>char[] (5,243 samples, 19.60%)</title><rect x="194.4" y="403.0" width="231.3" height="15" fill="#3badad" rx="2" ry="2"/>
+<text x="197.4" y="414.0">char[]</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>char[] (26 samples, 0.10%)</title><rect x="425.7" y="403.0" width="1.1" height="15" fill="#d87400" rx="2" ry="2"/>
+<text x="428.7" y="414.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringBuilder.toString (1,951 samples, 7.29%)</title><rect x="426.8" y="467.0" width="86.1" height="15" fill="#39cf39" rx="2" ry="2"/>
+<text x="429.8" y="478.0">java/lang/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.lang.String (131 samples, 0.49%)</title><rect x="426.8" y="451.0" width="5.8" height="15" fill="#38aaaa" rx="2" ry="2"/>
+<text x="429.8" y="462.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/String.&lt;init&gt; (1,820 samples, 6.80%)</title><rect x="432.6" y="451.0" width="80.3" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="435.6" y="462.0">java/lang..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/Arrays.copyOfRange (1,820 samples, 6.80%)</title><rect x="432.6" y="435.0" width="80.3" height="15" fill="#3fd43f" rx="2" ry="2"/>
+<text x="435.6" y="446.0">java/util..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>char[] (1,814 samples, 6.78%)</title><rect x="432.6" y="419.0" width="80.0" height="15" fill="#50c1c1" rx="2" ry="2"/>
+<text x="435.6" y="430.0">char[]</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/ArrayList.iterator (149 samples, 0.56%)</title><rect x="512.9" y="467.0" width="6.5" height="15" fill="#64f664" rx="2" ry="2"/>
+<text x="515.9" y="478.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.util.ArrayList$Itr (148 samples, 0.55%)</title><rect x="512.9" y="451.0" width="6.5" height="15" fill="#56c6c6" rx="2" ry="2"/>
+<text x="515.9" y="462.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/StringJoiner.&lt;init&gt; (195 samples, 0.73%)</title><rect x="519.4" y="467.0" width="8.6" height="15" fill="#43d843" rx="2" ry="2"/>
+<text x="522.4" y="478.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/StringJoiner.&lt;init&gt; (195 samples, 0.73%)</title><rect x="519.4" y="451.0" width="8.6" height="15" fill="#58eb58" rx="2" ry="2"/>
+<text x="522.4" y="462.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>char[] (85 samples, 0.32%)</title><rect x="519.4" y="435.0" width="3.8" height="15" fill="#51c1c1" rx="2" ry="2"/>
+<text x="522.4" y="446.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.lang.String (110 samples, 0.41%)</title><rect x="523.2" y="435.0" width="4.8" height="15" fill="#4fc0c0" rx="2" ry="2"/>
+<text x="526.2" y="446.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/StringJoiner.add (6,651 samples, 24.87%)</title><rect x="528.0" y="467.0" width="293.5" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="531.0" y="478.0">java/util/StringJoiner.add</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringBuilder.append (5,144 samples, 19.23%)</title><rect x="528.0" y="451.0" width="227.0" height="15" fill="#43d843" rx="2" ry="2"/>
+<text x="531.0" y="462.0">java/lang/StringBuilder.append</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/AbstractStringBuilder.append (5,144 samples, 19.23%)</title><rect x="528.0" y="435.0" width="227.0" height="15" fill="#60f260" rx="2" ry="2"/>
+<text x="531.0" y="446.0">java/lang/AbstractStringBuilde..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringBuilder.append (5,144 samples, 19.23%)</title><rect x="528.0" y="419.0" width="227.0" height="15" fill="#51e451" rx="2" ry="2"/>
+<text x="531.0" y="430.0">java/lang/StringBuilder.append</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringBuilder.append (5,144 samples, 19.23%)</title><rect x="528.0" y="403.0" width="227.0" height="15" fill="#60f260" rx="2" ry="2"/>
+<text x="531.0" y="414.0">java/lang/StringBuilder.append</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/AbstractStringBuilder.append (5,144 samples, 19.23%)</title><rect x="528.0" y="387.0" width="227.0" height="15" fill="#4ade4a" rx="2" ry="2"/>
+<text x="531.0" y="398.0">java/lang/AbstractStringBuilde..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/AbstractStringBuilder.ensureCapacityInternal (5,144 samples, 19.23%)</title><rect x="528.0" y="371.0" width="227.0" height="15" fill="#67f967" rx="2" ry="2"/>
+<text x="531.0" y="382.0">java/lang/AbstractStringBuilde..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/Arrays.copyOf (5,144 samples, 19.23%)</title><rect x="528.0" y="355.0" width="227.0" height="15" fill="#42d742" rx="2" ry="2"/>
+<text x="531.0" y="366.0">java/util/Arrays.copyOf</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>char[] (5,125 samples, 19.16%)</title><rect x="528.0" y="339.0" width="226.1" height="15" fill="#47b8b8" rx="2" ry="2"/>
+<text x="531.0" y="350.0">char[]</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/StringJoiner.prepareBuilder (1,507 samples, 5.63%)</title><rect x="755.0" y="451.0" width="66.5" height="15" fill="#62f462" rx="2" ry="2"/>
+<text x="758.0" y="462.0">java/ut..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.lang.StringBuilder (149 samples, 0.56%)</title><rect x="755.0" y="435.0" width="6.6" height="15" fill="#69d7d7" rx="2" ry="2"/>
+<text x="758.0" y="446.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringBuilder.&lt;init&gt; (253 samples, 0.95%)</title><rect x="761.6" y="435.0" width="11.1" height="15" fill="#36cb36" rx="2" ry="2"/>
+<text x="764.6" y="446.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/AbstractStringBuilder.&lt;init&gt; (253 samples, 0.95%)</title><rect x="761.6" y="419.0" width="11.1" height="15" fill="#6afc6a" rx="2" ry="2"/>
+<text x="764.6" y="430.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>char[] (253 samples, 0.95%)</title><rect x="761.6" y="403.0" width="11.1" height="15" fill="#51c1c1" rx="2" ry="2"/>
+<text x="764.6" y="414.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringBuilder.append (1,105 samples, 4.13%)</title><rect x="772.7" y="435.0" width="48.8" height="15" fill="#37cc37" rx="2" ry="2"/>
+<text x="775.7" y="446.0">java..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/AbstractStringBuilder.append (1,105 samples, 4.13%)</title><rect x="772.7" y="419.0" width="48.8" height="15" fill="#3dd23d" rx="2" ry="2"/>
+<text x="775.7" y="430.0">java..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/AbstractStringBuilder.ensureCapacityInternal (1,105 samples, 4.13%)</title><rect x="772.7" y="403.0" width="48.8" height="15" fill="#59ec59" rx="2" ry="2"/>
+<text x="775.7" y="414.0">java..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/Arrays.copyOf (1,105 samples, 4.13%)</title><rect x="772.7" y="387.0" width="48.8" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="775.7" y="398.0">java..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>char[] (1,102 samples, 4.12%)</title><rect x="772.7" y="371.0" width="48.6" height="15" fill="#46b8b8" rx="2" ry="2"/>
+<text x="775.7" y="382.0">char[]</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/StringJoiner.toString (1,722 samples, 6.44%)</title><rect x="821.5" y="467.0" width="75.9" height="15" fill="#35cb35" rx="2" ry="2"/>
+<text x="824.5" y="478.0">java/uti..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringBuilder.toString (1,722 samples, 6.44%)</title><rect x="821.5" y="451.0" width="75.9" height="15" fill="#33c933" rx="2" ry="2"/>
+<text x="824.5" y="462.0">java/lan..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/String.&lt;init&gt; (1,722 samples, 6.44%)</title><rect x="821.5" y="435.0" width="75.9" height="15" fill="#4de14d" rx="2" ry="2"/>
+<text x="824.5" y="446.0">java/lan..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/Arrays.copyOfRange (1,722 samples, 6.44%)</title><rect x="821.5" y="419.0" width="75.9" height="15" fill="#35cb35" rx="2" ry="2"/>
+<text x="824.5" y="430.0">java/uti..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>char[] (1,709 samples, 6.39%)</title><rect x="821.5" y="403.0" width="75.4" height="15" fill="#40b2b2" rx="2" ry="2"/>
+<text x="824.5" y="414.0">char[]</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hive/streaming/HiveStreamingConnection.write (5,658 samples, 21.15%)</title><rect x="898.0" y="467.0" width="249.6" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="901.0" y="478.0">org/apache/hive/streaming/HiveStr..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hive/streaming/HiveStreamingConnection$TransactionBatch.write (5,658 samples, 21.15%)</title><rect x="898.0" y="451.0" width="249.6" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="901.0" y="462.0">org/apache/hive/streaming/HiveStr..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hive/streaming/AbstractRecordWriter.write (5,658 samples, 21.15%)</title><rect x="898.0" y="435.0" width="249.6" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="901.0" y="446.0">org/apache/hive/streaming/Abstrac..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hive/ql/io/orc/OrcRecordUpdater.insert (3,338 samples, 12.48%)</title><rect x="898.0" y="419.0" width="147.3" height="15" fill="#41d641" rx="2" ry="2"/>
+<text x="901.0" y="430.0">org/apache/hadoop/h..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hive/ql/io/orc/OrcRecordUpdater.addSplitUpdateEvent (3,338 samples, 12.48%)</title><rect x="898.0" y="403.0" width="147.3" height="15" fill="#52e552" rx="2" ry="2"/>
+<text x="901.0" y="414.0">org/apache/hadoop/h..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hive/ql/io/orc/OrcRecordUpdater.addSimpleEvent (3,338 samples, 12.48%)</title><rect x="898.0" y="387.0" width="147.3" height="15" fill="#48dc48" rx="2" ry="2"/>
+<text x="901.0" y="398.0">org/apache/hadoop/h..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org.apache.hadoop.io.IntWritable (93 samples, 0.35%)</title><rect x="898.0" y="371.0" width="4.1" height="15" fill="#5fcece" rx="2" ry="2"/>
+<text x="901.0" y="382.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hive/ql/io/orc/WriterImpl.addRow (3,234 samples, 12.09%)</title><rect x="902.6" y="371.0" width="142.7" height="15" fill="#50e450" rx="2" ry="2"/>
+<text x="905.6" y="382.0">org/apache/hadoop/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hive/ql/io/orc/WriterImpl.flushInternalBatch (3,234 samples, 12.09%)</title><rect x="902.6" y="355.0" width="142.7" height="15" fill="#5aec5a" rx="2" ry="2"/>
+<text x="905.6" y="366.0">org/apache/hadoop/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/WriterImpl.addRowBatch (3,234 samples, 12.09%)</title><rect x="902.6" y="339.0" width="142.7" height="15" fill="#51e551" rx="2" ry="2"/>
+<text x="905.6" y="350.0">org/apache/orc/imp..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/MemoryManagerImpl.addedRow (2,041 samples, 7.63%)</title><rect x="902.6" y="323.0" width="90.1" height="15" fill="#34ca34" rx="2" ry="2"/>
+<text x="905.6" y="334.0">org/apache..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/MemoryManagerImpl.notifyWriters (2,041 samples, 7.63%)</title><rect x="902.6" y="307.0" width="90.1" height="15" fill="#4ce04c" rx="2" ry="2"/>
+<text x="905.6" y="318.0">org/apache..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/WriterImpl.checkMemory (2,041 samples, 7.63%)</title><rect x="902.6" y="291.0" width="90.1" height="15" fill="#69fb69" rx="2" ry="2"/>
+<text x="905.6" y="302.0">org/apache..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/WriterImpl.flushStripe (2,041 samples, 7.63%)</title><rect x="902.6" y="275.0" width="90.1" height="15" fill="#69fb69" rx="2" ry="2"/>
+<text x="905.6" y="286.0">org/apache..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/PhysicalFsWriter.finalizeStripe (1,941 samples, 7.26%)</title><rect x="902.6" y="259.0" width="85.7" height="15" fill="#5def5d" rx="2" ry="2"/>
+<text x="905.6" y="270.0">org/apache..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/PhysicalFsWriter$BufferedStream.spillToDiskAndClear (1,924 samples, 7.19%)</title><rect x="902.6" y="243.0" width="84.9" height="15" fill="#43d743" rx="2" ry="2"/>
+<text x="905.6" y="254.0">org/apache..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/io/DataOutputStream.write (1,924 samples, 7.19%)</title><rect x="902.6" y="227.0" width="84.9" height="15" fill="#5ef05e" rx="2" ry="2"/>
+<text x="905.6" y="238.0">java/io/Da..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/fs/FSDataOutputStream$PositionCache.write (1,924 samples, 7.19%)</title><rect x="902.6" y="211.0" width="84.9" height="15" fill="#58eb58" rx="2" ry="2"/>
+<text x="905.6" y="222.0">org/apache..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/fs/FSOutputSummer.write (1,924 samples, 7.19%)</title><rect x="902.6" y="195.0" width="84.9" height="15" fill="#47db47" rx="2" ry="2"/>
+<text x="905.6" y="206.0">org/apache..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/fs/FSOutputSummer.write1 (1,924 samples, 7.19%)</title><rect x="902.6" y="179.0" width="84.9" height="15" fill="#5bed5b" rx="2" ry="2"/>
+<text x="905.6" y="190.0">org/apache..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/fs/FSOutputSummer.flushBuffer (245 samples, 0.92%)</title><rect x="902.6" y="163.0" width="10.8" height="15" fill="#3bd13b" rx="2" ry="2"/>
+<text x="905.6" y="174.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/fs/FSOutputSummer.flushBuffer (245 samples, 0.92%)</title><rect x="902.6" y="147.0" width="10.8" height="15" fill="#4ce04c" rx="2" ry="2"/>
+<text x="905.6" y="158.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/fs/FSOutputSummer.writeChecksumChunks (245 samples, 0.92%)</title><rect x="902.6" y="131.0" width="10.8" height="15" fill="#66f866" rx="2" ry="2"/>
+<text x="905.6" y="142.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/DFSOutputStream.writeChunk (245 samples, 0.92%)</title><rect x="902.6" y="115.0" width="10.8" height="15" fill="#63f563" rx="2" ry="2"/>
+<text x="905.6" y="126.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/DFSOutputStream.writeChunkPrepare (245 samples, 0.92%)</title><rect x="902.6" y="99.0" width="10.8" height="15" fill="#45da45" rx="2" ry="2"/>
+<text x="905.6" y="110.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/DFSOutputStream.createPacket (245 samples, 0.92%)</title><rect x="902.6" y="83.0" width="10.8" height="15" fill="#3fd43f" rx="2" ry="2"/>
+<text x="905.6" y="94.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/util/ByteArrayManager$NewByteArrayWithoutLimit.newByteArray (245 samples, 0.92%)</title><rect x="902.6" y="67.0" width="10.8" height="15" fill="#67f967" rx="2" ry="2"/>
+<text x="905.6" y="78.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>byte[] (81 samples, 0.30%)</title><rect x="902.6" y="51.0" width="3.6" height="15" fill="#47b8b8" rx="2" ry="2"/>
+<text x="905.6" y="62.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>byte[] (164 samples, 0.61%)</title><rect x="906.2" y="51.0" width="7.2" height="15" fill="#ea8600" rx="2" ry="2"/>
+<text x="909.2" y="62.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/fs/FSOutputSummer.writeChecksumChunks (1,679 samples, 6.28%)</title><rect x="913.4" y="163.0" width="74.1" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="916.4" y="174.0">org/apac..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/DFSOutputStream.writeChunk (1,679 samples, 6.28%)</title><rect x="913.4" y="147.0" width="74.1" height="15" fill="#55e855" rx="2" ry="2"/>
+<text x="916.4" y="158.0">org/apac..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/DFSOutputStream.enqueueCurrentPacketFull (34 samples, 0.13%)</title><rect x="913.4" y="131.0" width="1.5" height="15" fill="#59ec59" rx="2" ry="2"/>
+<text x="916.4" y="142.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/DFSOutputStream.enqueueCurrentPacket (33 samples, 0.12%)</title><rect x="913.5" y="115.0" width="1.4" height="15" fill="#65f765" rx="2" ry="2"/>
+<text x="916.5" y="126.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/DataStreamer.waitAndQueuePacket (33 samples, 0.12%)</title><rect x="913.5" y="99.0" width="1.4" height="15" fill="#4ce04c" rx="2" ry="2"/>
+<text x="916.5" y="110.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/DataStreamer.queuePacket (33 samples, 0.12%)</title><rect x="913.5" y="83.0" width="1.4" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="916.5" y="94.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/LinkedList.addLast (33 samples, 0.12%)</title><rect x="913.5" y="67.0" width="1.4" height="15" fill="#49dd49" rx="2" ry="2"/>
+<text x="916.5" y="78.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/LinkedList.linkLast (33 samples, 0.12%)</title><rect x="913.5" y="51.0" width="1.4" height="15" fill="#62f462" rx="2" ry="2"/>
+<text x="916.5" y="62.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.util.LinkedList$Node (33 samples, 0.12%)</title><rect x="913.5" y="35.0" width="1.4" height="15" fill="#5bcaca" rx="2" ry="2"/>
+<text x="916.5" y="46.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/DFSOutputStream.writeChunkPrepare (1,645 samples, 6.15%)</title><rect x="914.9" y="131.0" width="72.6" height="15" fill="#68fa68" rx="2" ry="2"/>
+<text x="917.9" y="142.0">org/apac..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/DFSOutputStream.createPacket (1,633 samples, 6.11%)</title><rect x="915.5" y="115.0" width="72.0" height="15" fill="#4ee24e" rx="2" ry="2"/>
+<text x="918.5" y="126.0">org/apac..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/util/ByteArrayManager$NewByteArrayWithoutLimit.newByteArray (1,632 samples, 6.10%)</title><rect x="915.5" y="99.0" width="72.0" height="15" fill="#3ed33e" rx="2" ry="2"/>
+<text x="918.5" y="110.0">org/apac..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>byte[] (646 samples, 2.42%)</title><rect x="915.5" y="83.0" width="28.5" height="15" fill="#6bd9d9" rx="2" ry="2"/>
+<text x="918.5" y="94.0">by..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>byte[] (986 samples, 3.69%)</title><rect x="944.0" y="83.0" width="43.5" height="15" fill="#f99500" rx="2" ry="2"/>
+<text x="947.0" y="94.0">byte[]</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/writer/StructTreeWriter.flushStreams (100 samples, 0.37%)</title><rect x="988.3" y="259.0" width="4.4" height="15" fill="#3ad03a" rx="2" ry="2"/>
+<text x="991.3" y="270.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/writer/IntegerTreeWriter.flushStreams (36 samples, 0.13%)</title><rect x="988.3" y="243.0" width="1.5" height="15" fill="#66f866" rx="2" ry="2"/>
+<text x="991.3" y="254.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/writer/StructTreeWriter.flushStreams (64 samples, 0.24%)</title><rect x="989.8" y="243.0" width="2.9" height="15" fill="#58eb58" rx="2" ry="2"/>
+<text x="992.8" y="254.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/writer/StringBaseTreeWriter.flushStreams (63 samples, 0.24%)</title><rect x="989.8" y="227.0" width="2.8" height="15" fill="#4bdf4b" rx="2" ry="2"/>
+<text x="992.8" y="238.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/RunLengthIntegerWriterV2.flush (27 samples, 0.10%)</title><rect x="990.6" y="211.0" width="1.2" height="15" fill="#57ea57" rx="2" ry="2"/>
+<text x="993.6" y="222.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/OutStream.flush (27 samples, 0.10%)</title><rect x="990.6" y="195.0" width="1.2" height="15" fill="#42d742" rx="2" ry="2"/>
+<text x="993.6" y="206.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/OutStream.spill (27 samples, 0.10%)</title><rect x="990.6" y="179.0" width="1.2" height="15" fill="#61f361" rx="2" ry="2"/>
+<text x="993.6" y="190.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/OutStream.getNewInputBuffer (27 samples, 0.10%)</title><rect x="990.6" y="163.0" width="1.2" height="15" fill="#44d844" rx="2" ry="2"/>
+<text x="993.6" y="174.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/nio/ByteBuffer.allocate (27 samples, 0.10%)</title><rect x="990.6" y="147.0" width="1.2" height="15" fill="#4ce04c" rx="2" ry="2"/>
+<text x="993.6" y="158.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/nio/HeapByteBuffer.&lt;init&gt; (27 samples, 0.10%)</title><rect x="990.6" y="131.0" width="1.2" height="15" fill="#3fd43f" rx="2" ry="2"/>
+<text x="993.6" y="142.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>byte[] (27 samples, 0.10%)</title><rect x="990.6" y="115.0" width="1.2" height="15" fill="#3dafaf" rx="2" ry="2"/>
+<text x="993.6" y="126.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/writer/StructTreeWriter.writeRootBatch (1,193 samples, 4.46%)</title><rect x="992.7" y="323.0" width="52.6" height="15" fill="#42d742" rx="2" ry="2"/>
+<text x="995.7" y="334.0">org/a..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/writer/IntegerTreeWriter.writeBatch (39 samples, 0.15%)</title><rect x="992.7" y="307.0" width="1.7" height="15" fill="#53e653" rx="2" ry="2"/>
+<text x="995.7" y="318.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/RunLengthIntegerWriterV2.write (26 samples, 0.10%)</title><rect x="992.7" y="291.0" width="1.1" height="15" fill="#4ade4a" rx="2" ry="2"/>
+<text x="995.7" y="302.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/writer/StructTreeWriter.writeBatch (1,154 samples, 4.31%)</title><rect x="994.4" y="307.0" width="50.9" height="15" fill="#3cd13c" rx="2" ry="2"/>
+<text x="997.4" y="318.0">org/a..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/writer/StructTreeWriter.writeFields (1,152 samples, 4.31%)</title><rect x="994.4" y="291.0" width="50.8" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="997.4" y="302.0">org/a..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/writer/StringTreeWriter.writeBatch (1,152 samples, 4.31%)</title><rect x="994.4" y="275.0" width="50.8" height="15" fill="#38cd38" rx="2" ry="2"/>
+<text x="997.4" y="286.0">org/a..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/OutStream.write (805 samples, 3.01%)</title><rect x="994.5" y="259.0" width="35.5" height="15" fill="#39ce39" rx="2" ry="2"/>
+<text x="997.5" y="270.0">org..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/OutStream.getNewInputBuffer (27 samples, 0.10%)</title><rect x="994.5" y="243.0" width="1.2" height="15" fill="#4fe34f" rx="2" ry="2"/>
+<text x="997.5" y="254.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/nio/ByteBuffer.allocate (27 samples, 0.10%)</title><rect x="994.5" y="227.0" width="1.2" height="15" fill="#5ff15f" rx="2" ry="2"/>
+<text x="997.5" y="238.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/nio/HeapByteBuffer.&lt;init&gt; (25 samples, 0.09%)</title><rect x="994.6" y="211.0" width="1.1" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="997.6" y="222.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>byte[] (25 samples, 0.09%)</title><rect x="994.6" y="195.0" width="1.1" height="15" fill="#6ad8d8" rx="2" ry="2"/>
+<text x="997.6" y="206.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/OutStream.spill (778 samples, 2.91%)</title><rect x="995.7" y="243.0" width="34.3" height="15" fill="#5bed5b" rx="2" ry="2"/>
+<text x="998.7" y="254.0">or..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/OutStream.getNewInputBuffer (778 samples, 2.91%)</title><rect x="995.7" y="227.0" width="34.3" height="15" fill="#48dd48" rx="2" ry="2"/>
+<text x="998.7" y="238.0">or..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/nio/ByteBuffer.allocate (778 samples, 2.91%)</title><rect x="995.7" y="211.0" width="34.3" height="15" fill="#5ef15e" rx="2" ry="2"/>
+<text x="998.7" y="222.0">ja..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/nio/HeapByteBuffer.&lt;init&gt; (774 samples, 2.89%)</title><rect x="995.8" y="195.0" width="34.2" height="15" fill="#48dc48" rx="2" ry="2"/>
+<text x="998.8" y="206.0">ja..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>byte[] (771 samples, 2.88%)</title><rect x="995.8" y="179.0" width="34.1" height="15" fill="#43b5b5" rx="2" ry="2"/>
+<text x="998.8" y="190.0">by..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/RunLengthIntegerWriterV2.write (329 samples, 1.23%)</title><rect x="1030.0" y="259.0" width="14.5" height="15" fill="#3fd43f" rx="2" ry="2"/>
+<text x="1033.0" y="270.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>long[] (46 samples, 0.17%)</title><rect x="1030.0" y="243.0" width="2.0" height="15" fill="#55c5c5" rx="2" ry="2"/>
+<text x="1033.0" y="254.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/RunLengthIntegerWriterV2.determineEncoding (256 samples, 0.96%)</title><rect x="1032.0" y="243.0" width="11.3" height="15" fill="#40d540" rx="2" ry="2"/>
+<text x="1035.0" y="254.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/SerializationUtils.percentileBits (256 samples, 0.96%)</title><rect x="1032.0" y="227.0" width="11.3" height="15" fill="#3bd03b" rx="2" ry="2"/>
+<text x="1035.0" y="238.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>int[] (256 samples, 0.96%)</title><rect x="1032.0" y="211.0" width="11.3" height="15" fill="#5dcdcd" rx="2" ry="2"/>
+<text x="1035.0" y="222.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/orc/impl/RunLengthIntegerWriterV2.writeValues (27 samples, 0.10%)</title><rect x="1043.3" y="243.0" width="1.2" height="15" fill="#39ce39" rx="2" ry="2"/>
+<text x="1046.3" y="254.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hive/streaming/AbstractRecordWriter.getRecordUpdater (963 samples, 3.60%)</title><rect x="1045.3" y="419.0" width="42.5" height="15" fill="#61f361" rx="2" ry="2"/>
+<text x="1048.3" y="430.0">org/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/invoke/LambdaForm$MH/785570251.linkToTargetMethod (124 samples, 0.46%)</title><rect x="1045.3" y="403.0" width="5.5" height="15" fill="#3bd13b" rx="2" ry="2"/>
+<text x="1048.3" y="414.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/invoke/LambdaForm$DMH/1982787818.invokeStatic_L_L (124 samples, 0.46%)</title><rect x="1045.3" y="387.0" width="5.5" height="15" fill="#5ef05e" rx="2" ry="2"/>
+<text x="1048.3" y="398.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hive/streaming/AbstractRecordWriter$$Lambda$155/1316538943.get$Lambda (124 samples, 0.46%)</title><rect x="1045.3" y="371.0" width="5.5" height="15" fill="#36cc36" rx="2" ry="2"/>
+<text x="1048.3" y="382.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org.apache.hive.streaming.AbstractRecordWriter$$Lambda$155 (124 samples, 0.46%)</title><rect x="1045.3" y="355.0" width="5.5" height="15" fill="#6bd9d9" rx="2" ry="2"/>
+<text x="1048.3" y="366.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/AbstractCollection.toString (839 samples, 3.14%)</title><rect x="1050.8" y="403.0" width="37.0" height="15" fill="#35ca35" rx="2" ry="2"/>
+<text x="1053.8" y="414.0">jav..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.lang.StringBuilder (93 samples, 0.35%)</title><rect x="1050.8" y="387.0" width="4.1" height="15" fill="#51c1c1" rx="2" ry="2"/>
+<text x="1053.8" y="398.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringBuilder.&lt;init&gt; (237 samples, 0.89%)</title><rect x="1054.9" y="387.0" width="10.4" height="15" fill="#3cd13c" rx="2" ry="2"/>
+<text x="1057.9" y="398.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/AbstractStringBuilder.&lt;init&gt; (237 samples, 0.89%)</title><rect x="1054.9" y="371.0" width="10.4" height="15" fill="#40d540" rx="2" ry="2"/>
+<text x="1057.9" y="382.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>char[] (237 samples, 0.89%)</title><rect x="1054.9" y="355.0" width="10.4" height="15" fill="#61d0d0" rx="2" ry="2"/>
+<text x="1057.9" y="366.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/StringBuilder.toString (315 samples, 1.18%)</title><rect x="1065.3" y="387.0" width="13.9" height="15" fill="#5df05d" rx="2" ry="2"/>
+<text x="1068.3" y="398.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.lang.String (122 samples, 0.46%)</title><rect x="1065.3" y="371.0" width="5.4" height="15" fill="#59c9c9" rx="2" ry="2"/>
+<text x="1068.3" y="382.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/String.&lt;init&gt; (193 samples, 0.72%)</title><rect x="1070.7" y="371.0" width="8.5" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="1073.7" y="382.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/Arrays.copyOfRange (193 samples, 0.72%)</title><rect x="1070.7" y="355.0" width="8.5" height="15" fill="#58eb58" rx="2" ry="2"/>
+<text x="1073.7" y="366.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>char[] (193 samples, 0.72%)</title><rect x="1070.7" y="339.0" width="8.5" height="15" fill="#5fcece" rx="2" ry="2"/>
+<text x="1073.7" y="350.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/ArrayList.iterator (194 samples, 0.73%)</title><rect x="1079.2" y="387.0" width="8.6" height="15" fill="#37cd37" rx="2" ry="2"/>
+<text x="1082.2" y="398.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.util.ArrayList$Itr (194 samples, 0.73%)</title><rect x="1079.2" y="371.0" width="8.6" height="15" fill="#3aacac" rx="2" ry="2"/>
+<text x="1082.2" y="382.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hive/streaming/StrictDelimitedInputWriter.encode (1,357 samples, 5.07%)</title><rect x="1087.8" y="419.0" width="59.8" height="15" fill="#51e451" rx="2" ry="2"/>
+<text x="1090.8" y="430.0">org/ap..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/io/BytesWritable.set (1,357 samples, 5.07%)</title><rect x="1087.8" y="403.0" width="59.8" height="15" fill="#36cc36" rx="2" ry="2"/>
+<text x="1090.8" y="414.0">org/ap..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/io/BytesWritable.setSize (1,357 samples, 5.07%)</title><rect x="1087.8" y="387.0" width="59.8" height="15" fill="#36cb36" rx="2" ry="2"/>
+<text x="1090.8" y="398.0">org/ap..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/io/BytesWritable.setCapacity (1,357 samples, 5.07%)</title><rect x="1087.8" y="371.0" width="59.8" height="15" fill="#3ed33e" rx="2" ry="2"/>
+<text x="1090.8" y="382.0">org/ap..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>byte[] (1,352 samples, 5.05%)</title><rect x="1087.8" y="355.0" width="59.6" height="15" fill="#4dbebe" rx="2" ry="2"/>
+<text x="1090.8" y="366.0">byte[]</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/concurrent/ThreadPoolExecutor.getTask (168 samples, 0.63%)</title><rect x="1148.1" y="515.0" width="7.4" height="15" fill="#63f563" rx="2" ry="2"/>
+<text x="1151.1" y="526.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/concurrent/ScheduledThreadPoolExecutor$DelayedWorkQueue.take (168 samples, 0.63%)</title><rect x="1148.1" y="499.0" width="7.4" height="15" fill="#54e754" rx="2" ry="2"/>
+<text x="1151.1" y="510.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/concurrent/ScheduledThreadPoolExecutor$DelayedWorkQueue.take (168 samples, 0.63%)</title><rect x="1148.1" y="483.0" width="7.4" height="15" fill="#5ff15f" rx="2" ry="2"/>
+<text x="1151.1" y="494.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/concurrent/locks/AbstractQueuedSynchronizer$ConditionObject.awaitNanos (161 samples, 0.60%)</title><rect x="1148.4" y="467.0" width="7.1" height="15" fill="#35ca35" rx="2" ry="2"/>
+<text x="1151.4" y="478.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/concurrent/locks/AbstractQueuedSynchronizer$ConditionObject.reportInterruptAfterWait (161 samples, 0.60%)</title><rect x="1148.4" y="451.0" width="7.1" height="15" fill="#3bd03b" rx="2" ry="2"/>
+<text x="1151.4" y="462.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/InterruptedException.&lt;init&gt; (161 samples, 0.60%)</title><rect x="1148.4" y="435.0" width="7.1" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="1151.4" y="446.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/Exception.&lt;init&gt; (161 samples, 0.60%)</title><rect x="1148.4" y="419.0" width="7.1" height="15" fill="#3ed33e" rx="2" ry="2"/>
+<text x="1151.4" y="430.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/Throwable.&lt;init&gt; (161 samples, 0.60%)</title><rect x="1148.4" y="403.0" width="7.1" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="1151.4" y="414.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/Throwable.fillInStackTrace (161 samples, 0.60%)</title><rect x="1148.4" y="387.0" width="7.1" height="15" fill="#39ce39" rx="2" ry="2"/>
+<text x="1151.4" y="398.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/Throwable.fillInStackTrace (161 samples, 0.60%)</title><rect x="1148.4" y="371.0" width="7.1" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="1151.4" y="382.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.lang.Object[] (161 samples, 0.60%)</title><rect x="1148.4" y="355.0" width="7.1" height="15" fill="#35a7a7" rx="2" ry="2"/>
+<text x="1151.4" y="366.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/DataStreamer$ResponseProcessor.run (501 samples, 1.87%)</title><rect x="1156.4" y="563.0" width="22.1" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="1159.4" y="574.0">o..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.lang.StringBuilder (283 samples, 1.06%)</title><rect x="1156.4" y="547.0" width="12.5" height="15" fill="#36a8a8" rx="2" ry="2"/>
+<text x="1159.4" y="558.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/protocol/datatransfer/PipelineAck.readFields (217 samples, 0.81%)</title><rect x="1168.9" y="547.0" width="9.6" height="15" fill="#32c832" rx="2" ry="2"/>
+<text x="1171.9" y="558.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/protocolPB/PBHelperClient.vintPrefixed (213 samples, 0.80%)</title><rect x="1169.1" y="531.0" width="9.4" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="1172.1" y="542.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/io/FilterInputStream.read (212 samples, 0.79%)</title><rect x="1169.1" y="515.0" width="9.3" height="15" fill="#55e855" rx="2" ry="2"/>
+<text x="1172.1" y="526.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/io/FilterInputStream.read (212 samples, 0.79%)</title><rect x="1169.1" y="499.0" width="9.3" height="15" fill="#3cd13c" rx="2" ry="2"/>
+<text x="1172.1" y="510.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/net/SocketInputStream.read (212 samples, 0.79%)</title><rect x="1169.1" y="483.0" width="9.3" height="15" fill="#3bd03b" rx="2" ry="2"/>
+<text x="1172.1" y="494.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/net/SocketInputStream.read (211 samples, 0.79%)</title><rect x="1169.1" y="467.0" width="9.3" height="15" fill="#49dd49" rx="2" ry="2"/>
+<text x="1172.1" y="478.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/net/SocketInputStream.read (211 samples, 0.79%)</title><rect x="1169.1" y="451.0" width="9.3" height="15" fill="#68fa68" rx="2" ry="2"/>
+<text x="1172.1" y="462.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/net/SocketIOWithTimeout.doIO (211 samples, 0.79%)</title><rect x="1169.1" y="435.0" width="9.3" height="15" fill="#63f563" rx="2" ry="2"/>
+<text x="1172.1" y="446.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/net/SocketIOWithTimeout$SelectorPool.select (211 samples, 0.79%)</title><rect x="1169.1" y="419.0" width="9.3" height="15" fill="#47db47" rx="2" ry="2"/>
+<text x="1172.1" y="430.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>sun/nio/ch/SelectorImpl.select (211 samples, 0.79%)</title><rect x="1169.1" y="403.0" width="9.3" height="15" fill="#53e653" rx="2" ry="2"/>
+<text x="1172.1" y="414.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>sun/nio/ch/SelectorImpl.lockAndDoSelect (211 samples, 0.79%)</title><rect x="1169.1" y="387.0" width="9.3" height="15" fill="#54e754" rx="2" ry="2"/>
+<text x="1172.1" y="398.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>sun/nio/ch/EPollSelectorImpl.doSelect (211 samples, 0.79%)</title><rect x="1169.1" y="371.0" width="9.3" height="15" fill="#4de04d" rx="2" ry="2"/>
+<text x="1172.1" y="382.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>sun/nio/ch/EPollSelectorImpl.updateSelectedKeys (211 samples, 0.79%)</title><rect x="1169.1" y="355.0" width="9.3" height="15" fill="#5bed5b" rx="2" ry="2"/>
+<text x="1172.1" y="366.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/lang/Integer.valueOf (211 samples, 0.79%)</title><rect x="1169.1" y="339.0" width="9.3" height="15" fill="#37cd37" rx="2" ry="2"/>
+<text x="1172.1" y="350.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.lang.Integer (211 samples, 0.79%)</title><rect x="1169.1" y="323.0" width="9.3" height="15" fill="#51c2c2" rx="2" ry="2"/>
+<text x="1172.1" y="334.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/hdfs/DataStreamer.run (238 samples, 0.89%)</title><rect x="1178.5" y="563.0" width="10.5" height="15" fill="#5ff15f" rx="2" ry="2"/>
+<text x="1181.5" y="574.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/LinkedList.addLast (213 samples, 0.80%)</title><rect x="1178.5" y="547.0" width="9.4" height="15" fill="#44d844" rx="2" ry="2"/>
+<text x="1181.5" y="558.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java/util/LinkedList.linkLast (213 samples, 0.80%)</title><rect x="1178.5" y="531.0" width="9.4" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="1181.5" y="542.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>java.util.LinkedList$Node (213 samples, 0.80%)</title><rect x="1178.5" y="515.0" width="9.4" height="15" fill="#54c4c4" rx="2" ry="2"/>
+<text x="1181.5" y="526.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/ipc/Client$Connection.run (23 samples, 0.09%)</title><rect x="1189.0" y="563.0" width="1.0" height="15" fill="#66f866" rx="2" ry="2"/>
+<text x="1192.0" y="574.0"></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>org/apache/hadoop/ipc/Client$Connection.receiveRpcResponse (23 samples, 0.09%)</title><rect x="1189.0" y="547.0" width="1.0" height="15" fill="#5ef15e" rx="2" ry="2"/>
+<text x="1192.0" y="558.0"></text>
+</g>
+</svg>
